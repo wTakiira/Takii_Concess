@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Concession</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="root" class="hidden">
+    <header class="header">
+      <div class="brand">
+        <span class="logo">🚗</span>
+        <span id="shopLabel">Concession</span>
+      </div>
+      <button id="closeBtn" class="btn btn-ghost" title="Fermer">✕</button>
+    </header>
+
+    <section id="view-catalogue" class="content">
+      <aside class="sidebar">
+        <div class="sidebar-title">Catégories</div>
+        <div id="cats" class="cats"></div>
+      </aside>
+      <main class="main">
+        <div id="vehList" class="grid"></div>
+        <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="vehTitle">
+          <div class="modal__backdrop" id="modalBackdrop"></div>
+          <div class="modal__window">
+            <button class="modal__close" id="modalClose" aria-label="Fermer">×</button>
+            <div id="vehPanel" class="modal__content"></div>
+          </div>
+        </div>
+      </main>
+    </section>
+    
+
+    <section id="view-counter" class="hidden view">
+      <header class="header">
+        <div class="brand"><span class="logo">🏷️</span><span>Concession — Menu Job</span></div>
+        <div style="display:flex;gap:8px;align-items:center;width:60%">
+          <input id="spotGlobalSearch" class="input" style="flex:1" placeholder="Rechercher client, plaque, modèle..." />
+          <button id="btnAnnPromo" class="btn">Annonce promo</button>
+          <button id="closeCounter" class="btn btn-ghost">Fermer</button>
+        </div>
+      </header>
+
+      <section class="content">
+        <!-- Sidebar -->
+        <aside class="sidebar" style="min-width:260px">
+          <div class="sidebar-title">SECTIONS</div>
+          <div class="cats" id="counterSections">
+            <button class="btn" data-sec="spots" style="text-align:left">Parc & Spots</button>
+            <button class="btn" data-sec="logi"  style="text-align:left">Réception & Logistique</button>
+            <button class="btn" data-sec="logs"  style="text-align:left">Historique & Logs</button>
+          </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main">
+          <!-- Toolbar Spots -->
+            <div id="sec-spots">
+              <div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <div style="font-weight:700">Spots actifs</div>
+                <div id="chipsFilter" style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button class="btn btn-ghost" data-filter="all">Tous</button>
+                  <button class="btn btn-ghost" data-filter="free">Libres</button>
+                  <button class="btn btn-ghost" data-filter="occupied">Occupés</button>
+                  <button class="btn btn-ghost" data-filter="reserved">Réservés</button>
+                  <button class="btn btn-ghost" data-filter="car">Voiture</button>
+                  <button class="btn btn-ghost" data-filter="bike">Moto</button>
+                </div>
+                <div style="margin-left:auto" class="small">Astuce : clic sur une carte → actions rapides (spawn/retirer/réserver/assigner)</div>
+              </div>
+            <div id="spotsGrid" class="grid"></div>
+          </div>
+
+          <!-- ===== RÉCEPTION & LOGISTIQUE (REMPLACÉE) ===== -->
+            <div id="sec-logi" class="hidden">
+              <div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <div style="font-weight:700">Liste du stock</div>
+                <div id="stockInfo" class="small">Chargement…</div>
+                <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+                  <input id="stockSearch" class="input" placeholder="Rechercher modèle/catégorie…" style="width:260px" />
+                  <select id="stockCat" class="input" style="width:180px"><option value="">Toutes catégories</option></select>
+                </div>
+              </div>
+
+              <!-- Liste en lignes -->
+              <div id="stockList" class="list"></div>
+            </div>
+
+          <!-- ===== LOGS (placeholder) ===== -->
+          <div id="sec-logs" class="card hidden">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="font-weight:700">Historique & Logs</div>
+              <button id="btnHistReload" class="btn">Rafraîchir</button>
+            </div>
+            <div class="small" style="margin-top:8px;overflow:auto;max-height:45vh">
+              <table id="histTable" style="width:100%;border-collapse:collapse">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;padding:6px">Date</th>
+                    <th style="text-align:left;padding:6px">Type</th>
+                    <th style="text-align:left;padding:6px">Véhicule</th>
+                    <th style="text-align:right;padding:6px">Gain</th>
+                    <th style="text-align:right;padding:6px">Coût</th>
+                    <th style="padding:6px"></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+        </main>
+      </section>
+    </section>
+
+
+
+    <!-- Vue Boss -->
+    <section id="view-boss" class="hidden view">
+      <header class="header">
+        <div class="brand"><span class="logo">🧑‍💼</span><span>Menu Patron</span></div>
+        <button id="closeBoss" class="btn btn-ghost">✕</button>
+      </header>
+      <div class="main" style="padding:14px;display:grid;gap:12px">
+        <div id="bossBalance" class="card">Solde: 0 $</div>
+
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:6px">Salaires</div>
+          <div id="salaryList" class="small">Chargement…</div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:6px">Employés</div>
+          <div id="empList" class="small">Chargement…</div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div id="peekX" class="peekX hidden" title="Afficher le catalogue">✕</div>
+
+  <script src="app.js"></script>
+</body>
+</html>
