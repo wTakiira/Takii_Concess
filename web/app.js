@@ -6,9 +6,8 @@
   const vehList = document.getElementById('vehList');
   const panel = document.getElementById('vehPanel');
   const closeBtn = document.getElementById('closeBtn');
-  const modal         = document.getElementById('modal');
-  const modalBackdrop = document.getElementById('modalBackdrop');
-  const modalClose    = document.getElementById('modalClose');
+  const sidePanel     = document.getElementById('detail');
+  const panelCloseBtn = document.getElementById('panelClose'); 
   const peekX = document.getElementById('peekX');
   const viewCatalog = document.getElementById('view-catalogue');
   const viewCounter = document.getElementById('view-counter');
@@ -22,12 +21,28 @@
   const stockCat   = document.getElementById('stockCat');
   const stockSearch= document.getElementById('stockSearch');
   let   stockRows  = [];
+  let logiRows = [];
+  let logiRowsFiltered = [];
+  const logiInfo  = document.getElementById('logiInfo');
+  const logiList  = document.getElementById('logiList');
+  const logiCat   = document.getElementById('logiCat');
+  const logiSearch= document.getElementById('logiSearch');
 
 
   let counterSection = 'spots'; // 'spots' | 'logi' | 'logs'
 
-function openModal(){ modal.classList.remove('hidden'); document.body.classList.add('modal-open'); }
-function closeModal(){ modal.classList.add('hidden'); document.body.classList.remove('modal-open'); panel.innerHTML=''; }
+function openModal(){              
+  sidePanel.classList.remove('hidden');
+  document.body.classList.add('has-detail');
+  panel.classList.remove('hidden');
+}
+function closeModal(){             
+  sidePanel.classList.add('hidden');
+  document.body.classList.remove('has-detail');
+  panel.innerHTML = '';
+  panel.classList.remove('hidden');
+}
+panelCloseBtn.addEventListener('click', closeModal);
 
 function enterPeek(){
   state.peek = true;
@@ -41,9 +56,6 @@ function exitPeek(){
   peekX.classList.add('hidden');
 }
 peekX.addEventListener('click', exitPeek);
-
-modalBackdrop.addEventListener('click', closeModal);
-modalClose.addEventListener('click', closeModal);
 
 
 let state = {
@@ -87,7 +99,6 @@ let state = {
       hideRoot();
       vehList.innerHTML = '';
       panel.innerHTML = '';
-      hide(panel);
     }
     else if (msg.action === 'hide') {
       enterPeek();
@@ -96,7 +107,7 @@ let state = {
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape'){
-      if (!modal.classList.contains('hidden')) return closeModal();
+      if (!sidePanel.classList.contains('hidden')) return closeModal(); // ✅
       if (state.peek) return exitPeek();
       nui('ui:close');
     }
@@ -142,7 +153,9 @@ function quickPopup({ title = '', askColor = false, askPay = false, defaultColor
         </div>
       </div>
     `;
+
     document.body.appendChild(wrap);
+
     const done = (val) => { wrap.remove(); resolve(val); };
     wrap.querySelector('#qp_cancel').onclick = () => done(null);
     wrap.querySelector('#qp_ok').onclick = () => {
@@ -154,6 +167,7 @@ function quickPopup({ title = '', askColor = false, askPay = false, defaultColor
   });
 }
 
+
 function receptionLoad() {
   if (typeof logiLoad === 'function') return logiLoad();
   console.warn('logiLoad() est introuvable');
@@ -162,12 +176,14 @@ function receptionLoad() {
 // === LISTE DU STOCK (2 boutons : facture / moi) ===
 function renderStock(){
   if (!stockList) return;
-  const q = (stockSearch.value||'').toLowerCase().trim();
+
+  const q   = (stockSearch.value||'').toLowerCase().trim();
   const cat = stockCat.value || '';
+
   stockList.innerHTML = '';
 
   stockRows
-    .filter(r=>{
+    .filter(r => {
       if (cat && r.category !== cat) return false;
       if (q){
         const blob = `${r.name||''} ${r.model||''} ${r.category||''}`.toLowerCase();
@@ -175,59 +191,63 @@ function renderStock(){
       }
       return true;
     })
-    .forEach(r=>{
+    .forEach(r => {
+      const stockNum = Number(r.stock || 0);
+      const hasStock = stockNum > 0;
+
       const el = document.createElement('div');
       el.className = 'rowItem';
       el.innerHTML = `
         <div class="thumb">${r.image ? `<img src="${r.image}" alt="">` : `<span class="small">IMG</span>`}</div>
         <div>
           <div class="title">${r.name || r.model} <span class="sub">| ${Number(r.price||0).toLocaleString()} $</span></div>
-          <div class="sub">Stock: ${Number(r.stock||0)} • Cat: ${r.category||'-'}</div>
+          <div class="sub">Stock: ${stockNum} • Cat: ${r.category||'-'}</div>
         </div>
         <div class="actions">
-          <button class="iconBtn" title="Facture au client" data-act="bill">🧾</button>
-          <button class="iconBtn" title="Me vendre"          data-act="self">👤</button>
+          ${hasStock ? `
+            <button class="iconBtn" title="Facture au client" data-act="bill">🧾</button>
+            <button class="iconBtn" title="Me vendre"          data-act="self">👤</button>
+          ` : `
+            <span class="outStock">Besoin de réapprovisionnement</span>
+          `}
         </div>
       `;
 
-      el.querySelectorAll('.iconBtn').forEach(btn=>{
-        btn.addEventListener('click', async ()=>{
-          const act = btn.getAttribute('data-act');
+      if (hasStock) {
+        el.querySelectorAll('.iconBtn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const act = btn.getAttribute('data-act');
 
-          // -------- Facture au client
-          if (act === 'bill') {
-            const res = await nui('stock:bill', {
-              model: r.model,
-              name: r.name,
-              price: r.price
-              // color/pay ignorés par l'export openEmptyInvoice()
-            });
-            if (!res?.ok) {
-              toast(res?.msg || 'Erreur envoi facture', false);
-            } else {
-              // le callback LUA ferme déjà l’UI ; ceci est juste un filet de sécurité
-              await nui('ui:close');
-              toast('Facture ouverte (remplissez-la)', true);
+            if (act === 'bill') {
+              const res = await nui('stock:bill', {
+                model: r.model,
+                name:  r.name,
+                price: r.price
+              });
+              if (!res?.ok) {
+                toast(res?.msg || 'Erreur envoi facture', false);
+              } else {
+                await nui('ui:close');
+                toast('Facture ouverte (remplissez-la)', true);
+              }
+              return;
             }
-            return;
-          }
 
-          // -------- Vente à moi (self) avec choix paiement + couleur
-          if (act === 'self'){
-            const pick = await quickPopup({ title:'Acheter pour moi', askColor:true, askPay:true, defaultColor:'#000000' });
-            if (!pick) return;
+            if (act === 'self') {
+              const pick = await quickPopup({ title:'Acheter pour moi', askColor:true, askPay:true, defaultColor:'#000000' });
+              if (!pick) return;
 
-            const res = await nui('ui:buyAsDealer', {
-              customerType:'moi',
-              model:r.model, name:r.name, price:r.price,
-              color: pick.color, pay: pick.pay
-            });
-            await nui('ui:close');      // fermer le menu après l’achat
-            if (!res?.ok) toast('Achat: une erreur est survenue.', false);
-            return;
-          }
+              const res = await nui('ui:buyAsDealer', {
+                customerType:'moi',
+                model:r.model, name:r.name, price:r.price,
+                color: pick.color, pay: pick.pay
+              });
+              await nui('ui:close');
+              if (!res?.ok) toast('Achat: une erreur est survenue.', false);
+            }
+          });
         });
-      });
+      }
 
       stockList.appendChild(el);
     });
@@ -266,6 +286,7 @@ stockCat?.addEventListener('change', renderStock);
     } else if (msg.action === 'openBoss') {
       showView('boss');
       await bossLoad();
+      await reloadBossEmployees()
     }
     // (tes handlers 'open', 'close', 'hide' catalogue restent)
   });
@@ -389,16 +410,6 @@ stockCat?.addEventListener('change', renderStock);
   }
 
 
-  function matchFilter(s){
-    if (counterFilter === 'all')      return true;
-    if (counterFilter === 'free')     return s.status === 'free';
-    if (counterFilter === 'occupied') return s.status === 'occupied';
-    if (counterFilter === 'reserved') return s.status === 'reserved';
-    if (counterFilter === 'car')      return (s.kind || 'car') === 'car';
-    if (counterFilter === 'bike')     return (s.kind || 'car') === 'bike';
-    return true;
-  }
-
   // à avoir quelque part au dessus si pas déjà déclarés :
   async function openAssignForm(card, spot) {
     // Nettoyer des formulaires déjà ouverts sur cette carte
@@ -512,7 +523,6 @@ function renderSpots(){
         <button class="btn"        data-act="assign">Assigner</button>
         <button class="btn btn-blue" data-act="spawn">Spawn</button>
         <button class="btn"        data-act="retire">Retirer</button>
-        <button class="btn btn-warn" data-act="reserve">${s.status==='reserved'?'Dé-réserver':'Réserver'}</button>
       </div>
     `;
 
@@ -534,9 +544,7 @@ function renderSpots(){
         }
       } else if (s.status === 'occupied'){
         await nui('counter:spotClear', { spotId: s.id });
-      } else if (s.status === 'reserved'){
-        await nui('counter:spotReserve', { spotId: s.id, reserved: false });
-      }
+      } 
       await loadSpots(); 
     });
 
@@ -575,12 +583,6 @@ function renderSpots(){
   // });
 
   // ===== Logistique =====
-let logiRows = [];
-let logiRowsFiltered = [];
-const logiInfo  = document.getElementById('logiInfo');
-const logiList  = document.getElementById('logiList');
-const logiCat   = document.getElementById('logiCat');
-const logiSearch= document.getElementById('logiSearch');
 
 function showCounterSection(key){
   // masque tout
@@ -750,53 +752,334 @@ logiSearch?.addEventListener('input', renderLogi);
 logiCat?.addEventListener('change', renderLogi);
 
 
+function renderEmpCardBoss(emp) {
+  const card = document.createElement('div');
+  card.className = 'emp-card';
+  card.dataset.identifier = emp.identifier;
 
-  // ======= Boss =======
-  async function bossLoad(){
-    const d = await nui('boss:getData', {});
-    document.getElementById('bossBalance').textContent = `Solde: ${Number(d.balance||0).toLocaleString()} $`;
+  const initials = ((emp.firstname||'')[0]||'').toUpperCase() + ((emp.lastname||'')[0]||'').toUpperCase();
+  const grade = Number(emp.job_grade||0);
 
-    // salaires
-    const sWrap = document.getElementById('salaryList');
-    sWrap.innerHTML = '';
-    (d.salaries||[]).forEach(row => {
-      const line = document.createElement('div');
-      line.style.display='flex'; line.style.gap='8px'; line.style.alignItems='center'; line.style.margin='6px 0';
-      line.innerHTML = `
-        <div style="width:160px">${row.label || ('Grade #' + row.grade)}</div>
-        <input type="number" value="${row.salary||0}" min="0" class="input" style="width:130px" />
-        <button class="btn btn-blue">Appliquer</button>
-      `;
-      line.querySelector('button').addEventListener('click', () => {
-        const v = Number(line.querySelector('input').value||0);
-        nui('boss:setSalary', {grade: row.grade, amount: v});
-      });
-      sWrap.appendChild(line);
-    });
+  card.innerHTML = `
+    <div class="emp-avatar">${initials || '👤'}</div>
+    <div class="emp-main">
+      <div class="emp-name">${(emp.firstname||'') + ' ' + (emp.lastname||'')}</div>
+      <div class="emp-role">Grade <span class="emp-grade">${grade}</span></div>
+    </div>
+    <div class="emp-actions">
+      <button type="button" class="pill"              data-act="pay">Payé</button>
+      <button type="button" class="pill pill-primary" data-act="grade">Grade</button>
+      <button type="button" class="pill pill-warn"    data-act="fire">Virer</button>
+    </div>
+  `;
+  return card;
+}
 
-    // employés
-    const eWrap = document.getElementById('empList');
-    eWrap.innerHTML = '';
-    (d.employees||[]).forEach(emp => {
-      const line = document.createElement('div');
-      line.style.display='flex'; line.style.gap='8px'; line.style.alignItems='center'; line.style.margin='6px 0';
-      line.innerHTML = `
-        <div style="flex:1">${emp.firstname||''} ${emp.lastname||''} <span class="small">(${emp.job_grade})</span></div>
-        <input type="number" min="0" placeholder="Nouveau grade" class="input" style="width:130px" />
-        <button class="btn">Changer grade</button>
-        <button class="btn btn-warn">Renvoyer</button>
-      `;
-      const gradeInput = line.querySelector('input');
-      line.querySelectorAll('button')[0].addEventListener('click', () => {
-        const newGrade = Number(gradeInput.value||0);
-        nui('boss:changeGrade', {identifier: emp.identifier, newGrade});
-      });
-      line.querySelectorAll('button')[1].addEventListener('click', () => {
-        nui('boss:fire', {identifier: emp.identifier});
-      });
-      eWrap.appendChild(line);
-    });
-  }
+function wireBossClicks(){
+  const wrap = document.getElementById('bossEmps');
+  if (!wrap) { console.warn('[BOSS_UI] #bossEmps introuvable'); return; }
+  if (wrap.dataset.wired === '1') return; // déjà câblé
+
+  wrap.dataset.wired = '1';
+  wrap.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const card = btn.closest('.emp-card');
+    if (!card) return;
+
+    const act = btn.getAttribute('data-act');
+    const identifier = card.dataset.identifier;
+    const currentGrade = Number(card.querySelector('.emp-grade')?.textContent || 0);
+
+    if (act === 'pay') {
+      const amount = await popupNumber('Payer un salaire', { min: 1, defaultValue: 1000 });
+      if (amount == null) return;
+      const r = await nui('boss:payCustom', { identifier, amount: Number(amount) });
+      toast(r?.ok ? `Payé ${Number(amount).toLocaleString()} $` : (r?.msg||'Paiement impossible'), !!r?.ok);
+      return;
+    }
+
+    if (act === 'grade') {
+      const action = await popupGradeControls(currentGrade);
+      if (!action) return;
+
+      if (action === 'up') {
+        if (currentGrade === 3) {
+          const ok = await popupConfirm('Passer ce joueur Patron ?', "Il deviendra grade 4 et l'actuel patron sera rétrogradé grade 3.");
+          if (!ok) return;
+          const r = await nui('boss:promoteToBoss', { identifier });
+          toast(r?.ok ? 'Nouveau patron défini' : (r?.msg||'Action impossible'), !!r?.ok);
+          await bossLoad();
+        } else {
+          const r = await nui('boss:changeGrade', { identifier, newGrade: currentGrade + 1 });
+          toast(r?.ok ? `Grade ${currentGrade+1}` : (r?.msg||'Action impossible'), !!r?.ok);
+          await bossLoad();
+        }
+        return;
+      }
+
+      if (action === 'down') {
+        if (currentGrade === 0) return;
+        const r = await nui('boss:changeGrade', { identifier, newGrade: currentGrade - 1 });
+        toast(r?.ok ? `Grade ${currentGrade-1}` : (r?.msg||'Action impossible'), !!r?.ok);
+        await bossLoad();
+        return;
+      }
+    }
+
+    if (act === 'fire') {
+      const ok = await popupConfirm('Renvoyer cet employé ?', 'Il passera unemployed 0.');
+      if (!ok) return;
+      const r = await nui('boss:fire', { identifier });
+      toast(r?.ok ? 'Employé renvoyé' : (r?.msg||'Action impossible'), !!r?.ok);
+      await bossLoad();
+    }
+  });
+
+  console.log('[BOSS_UI] Click handler wired sur #bossEmps');
+}
+
+async function bossLoad(){
+  await reloadBossEmployees()
+  const d = await nui('boss:getData', {});
+  const bal = document.getElementById('bossBalance');
+  if (bal) bal.textContent = `Solde: ${Number(d.balance||0).toLocaleString()} $`;
+
+  const wrap = document.getElementById('bossEmps');
+  if (!wrap) { console.warn('[BOSS_UI] #bossEmps introuvable'); return; }
+
+  wrap.innerHTML = '';
+  (d.employees || []).forEach(emp => wrap.appendChild(renderEmpCardBoss(emp)));
+
+  // (Re)bind des 3 boutons du header
+  const btnRecruit = document.getElementById('btnRecruit');
+  const btnAddMoney = document.getElementById('btnAddMoney');
+  const btnRemMoney = document.getElementById('btnRemMoney');
+
+  // reset handlers (clone)
+  if (btnRecruit)  btnRecruit.replaceWith(btnRecruit.cloneNode(true));
+  if (btnAddMoney) btnAddMoney.replaceWith(btnAddMoney.cloneNode(true));
+  if (btnRemMoney) btnRemMoney.replaceWith(btnRemMoney.cloneNode(true));
+
+  document.getElementById('btnRecruit')?.addEventListener('click', async ()=>{
+    const near = await nui('ui:getNearby', { max: 8.0 });
+    const players = near?.players || [];
+    if (!players.length) return toast('Aucun joueur proche', false);
+    const g = await popupRecruitGrade();
+    if (g == null) return;
+    const res = await nui('boss:recruit', { targetId: players[0].id, grade: g });
+    toast(res?.ok ? 'Recruté' : (res?.msg||'Recrutement impossible'), !!res?.ok);
+    if (res?.ok) bossLoad();
+  });
+
+  document.getElementById('btnAddMoney')?.addEventListener('click', async ()=>{
+    const v = await popupNumber("Ajouter de l'argent à l'entreprise", { min: 1, defaultValue: 1000 });
+    if (v == null) return;
+    await nui('boss:addMoney', { amount: Number(v) });
+    await bossLoad();
+  });
+
+  document.getElementById('btnRemMoney')?.addEventListener('click', async ()=>{
+    const v = await popupNumber("Retirer de l'argent de l'entreprise", { min: 1, defaultValue: 1000 });
+    if (v == null) return;
+    await nui('boss:removeMoney', { amount: Number(v) });
+    await bossLoad();
+  });
+
+  // ⚡️ câblage des boutons des cartes (une seule fois)
+  wireBossClicks();
+}
+
+
+async function reloadBossEmployees() {
+  const wrap = document.getElementById('bossEmps');
+  if (!wrap) return;
+
+  // Indicateur visuel de chargement
+  wrap.innerHTML = '<div class="small">Mise à jour des employés...</div>';
+
+  // Récupère uniquement les données boss
+  const d = await nui('boss:getData', {});
+  wrap.innerHTML = ''; // on vide l'ancien contenu
+
+  // Regénère les cartes employé
+  (d.employees || []).forEach(emp => wrap.appendChild(renderEmpCardBoss(emp, d)));
+
+  // Réactive les boutons (Grade / Virer / Payé)
+  wireBossClicks();
+}
+
+
+function miniPopup({ title='', bodyHTML='', confirm='Confirmer', cancel='Annuler' }){
+  return new Promise(resolve=>{
+    const wrap = document.createElement('div');
+    wrap.className = 'miniPop';
+    wrap.innerHTML = `
+      <div class="miniPop__bg"></div>
+      <div class="miniPop__win">
+        <div class="miniPop__title">${title}</div>
+        <div class="miniPop__body">${bodyHTML}</div>
+        <div class="miniPop__actions">
+          <button class="btn btn-ghost" data-act="cancel">${cancel}</button>
+          <button class="btn btn-blue"  data-act="ok">${confirm}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    const done = (v)=>{ wrap.remove(); resolve(v); };
+    wrap.querySelector('.miniPop__bg').onclick = ()=>done(null);
+    wrap.querySelector('[data-act="cancel"]').onclick = ()=>done(null);
+    wrap.querySelector('[data-act="ok"]').onclick = ()=>done(true);
+  });
+}
+
+
+async function popupGradeControls(current){
+  const downDisabled = current === 0 ? 'disabled' : '';
+  const html = `
+    <div style="display:flex;gap:8px">
+      <button class="pill pill-ghost" id="gDown" ${downDisabled}>Descendre</button>
+      <button class="pill pill-primary" id="gUp">Monter</button>
+    </div>
+    <div class="small">Grade actuel : <b>${current}</b></div>`;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  // on crée un vrai popup pour capter lequel a été cliqué
+  return new Promise(async (resolve)=>{
+    const pop = document.createElement('div');
+    pop.className = 'miniPop';
+    pop.innerHTML = `
+      <div class="miniPop__bg"></div>
+      <div class="miniPop__win">
+        <div class="miniPop__title">Modifier le grade</div>
+        <div class="miniPop__body">${wrap.innerHTML}</div>
+        <div class="miniPop__actions">
+          <button class="btn btn-ghost" data-act="cancel">Fermer</button>
+        </div>
+      </div>`;
+    document.body.appendChild(pop);
+    const done = (v)=>{ pop.remove(); resolve(v); };
+    pop.querySelector('.miniPop__bg').onclick = ()=>done(null);
+    pop.querySelector('[data-act="cancel"]').onclick = ()=>done(null);
+    pop.querySelector('#gUp').onclick = ()=>done('up');
+    const gDown = pop.querySelector('#gDown');
+    if (gDown) gDown.onclick = ()=>done('down');
+  });
+}
+
+async function popupConfirm(title, text){
+  const html = `<div>${text||''}</div>`;
+  const ok = await miniPopup({ title, bodyHTML: html, confirm:'Valider', cancel:'Annuler' });
+  return !!ok;
+}
+
+async function popupRecruitGrade(){
+  return new Promise((resolve) => {
+    const pop = document.createElement('div');
+    pop.className = 'miniPop';
+    pop.innerHTML = `
+      <div class="miniPop__bg"></div>
+      <div class="miniPop__win">
+        <div class="miniPop__title">Recruter</div>
+        <div class="miniPop__body">
+          <div class="small" style="margin-bottom:6px">Grade d'entrée</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <label class="pill"><input type="radio" name="rg" value="0" checked />&nbsp;0</label>
+            <label class="pill"><input type="radio" name="rg" value="1" />&nbsp;1</label>
+            <label class="pill"><input type="radio" name="rg" value="2" />&nbsp;2</label>
+            <label class="pill"><input type="radio" name="rg" value="3" />&nbsp;3</label>
+          </div>
+        </div>
+        <div class="miniPop__actions">
+          <button class="btn btn-ghost" data-act="cancel">Annuler</button>
+          <button class="btn btn-blue"  data-act="ok">Recruter</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(pop);
+
+    const done = (val) => { pop.remove(); resolve(val); };
+
+    pop.querySelector('.miniPop__bg').onclick = () => done(null);
+    pop.querySelector('[data-act="cancel"]').onclick = () => done(null);
+    pop.querySelector('[data-act="ok"]').onclick = () => {
+      const sel = pop.querySelector('input[name="rg"]:checked');
+      const grade = sel ? Number(sel.value) : 0;
+      done(grade);
+    };
+  });
+}
+
+// === Petit popup numérique (montant) ===
+function quickNumberPopup({ title = 'Montant', min = 1, defaultValue = 1 } = {}) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'quickpop';
+    wrap.innerHTML = `
+      <div class="quickpop__bg"></div>
+      <div class="quickpop__win">
+        <div class="quickpop__title">${title}</div>
+        <div class="quickpop__body">
+          <label class="qp_row" style="width:100%">
+            <span>Montant</span>
+            <input id="qp_amount" type="number" class="input" style="width:160px" min="${min}" value="${defaultValue}">
+          </label>
+        </div>
+        <div class="quickpop__actions">
+          <button class="btn btn-ghost" id="qp_cancel">Annuler</button>
+          <button class="btn btn-blue"  id="qp_ok">Confirmer</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(wrap);
+
+    const done = (val) => {
+      document.removeEventListener('keydown', onKey);
+      wrap.remove();
+      resolve(val);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') done(null); };
+    document.addEventListener('keydown', onKey);
+
+    const amountEl = wrap.querySelector('#qp_amount');
+    setTimeout(() => amountEl?.focus?.(), 0);
+
+    wrap.querySelector('#qp_cancel').onclick = () => done(null);
+    wrap.querySelector('#qp_ok').onclick = () => {
+      const v = Math.max(min, Number(amountEl.value||0));
+      if (!Number.isFinite(v) || v < min) return;
+      done(v);
+    };
+    wrap.querySelector('.quickpop__bg').onclick = () => done(null);
+  });
+}
+
+
+function popupNumber(title, opts = {}) {
+  // redirige vers quickNumberPopup pour éviter l'undefined
+  return quickNumberPopup({ title, ...(opts || {}) });
+}
+
+
+// === BOSS: Options (recruter / ajouter / retirer argent) ===
+document.getElementById('btnAddMoney')?.addEventListener('click', async () => {
+  const v = await popupNumber("Ajouter de l'argent à l'entreprise", { min: 1, defaultValue: 1000 });
+  if (!v) return;
+  const r = await nui('boss:addMoney', { amount: Number(v) });
+  // Le serveur notifie déjà; on recharge l’état
+  await bossLoad();
+});
+
+document.getElementById('btnRemMoney')?.addEventListener('click', async () => {
+  const v = await popupNumber("Retirer de l'argent de l'entreprise", { min: 1, defaultValue: 1000 });
+  if (!v) return;
+  const r = await nui('boss:removeMoney', { amount: Number(v) });
+  await bossLoad();
+});
+
+
   closeBtn.addEventListener('click', () => nui('ui:close'));
 
   function buildCategories(categories) {
@@ -841,11 +1124,13 @@ logiCat?.addEventListener('change', renderLogi);
           }
         </div>
         <div class="title">${v.label}</div>
-        <div class="meta">
-          <span class="badge">${v.price.toLocaleString()} $</span>
-          <span class="badge">Stock: ${v.stock ?? 0}</span>
-          <span class="badge">Max: ${v.stats?.vmax ?? 0} km/h</span>
-        </div>
+         <div class="meta" style="align-items:center; justify-content:space-between; width:100%">
+           <div class="price smallcard">${v.price.toLocaleString()} $</div>
+           <div style="display:flex; gap:6px; flex-wrap:wrap">
+             <span class="badge">Stock: ${v.stock ?? 0}</span>
+             <span class="badge">Max: ${v.stats?.vmax ?? 0} km/h</span>
+           </div>
+         </div>
         <div class="actions">
           <button class="btn btn-primary">Détails</button>
           <button class="btn btn-blue">Visualiser</button>
@@ -870,48 +1155,60 @@ logiCat?.addEventListener('change', renderLogi);
   }
 
   function openPanel(v) {
-  state.currentVeh = v;
-  state.primary = '#000000';
-  state.secondary = '#000000';
+    state.currentVeh = v;
+    state.primary = '#000000';
+    state.secondary = '#000000';
 
-  panel.innerHTML = `
-    <h3 id="vehTitle">${v.label}</h3>
-    <div class="small">${v.model} • ${v.category} • ${v.price.toLocaleString()} $ • Stock: ${v.stock ?? 0}</div>
-    <div class="sep"></div>
+    const canBuy = state.autoBuyAllowed && Number(v.stock ?? 0) > 0;
 
-    <div class="row"><label>Vitesse max</label><div style="flex:1">${statBar(v.stats?.vmax/4)}</div></div>
-    <div class="row"><label>Accélération</label><div style="flex:1">${statBar(v.stats?.accel)}</div></div>
-    <div class="row"><label>Freinage</label><div style="flex:1">${statBar(v.stats?.brake)}</div></div>
+    panel.innerHTML = `
+      <div class="detail__head">
+        <h3 id="vehTitle" class="detail__title">${v.label}</h3>
+        <div class="detail__sub small">${v.model} • ${v.category} • Stock: ${v.stock ?? 0}</div>
+      </div>
 
-    <div class="sep"></div>
+      <div class="detail__hero">
+        ${v.image ? `<img src="${v.image}" alt="${v.label}">` : `<div class="noimg small">Aucune image</div>`}
+      </div>
 
-    <div class="row">
-      <label>Couleur (prim.)</label>
-      <input type="color" id="cPrim" value="#000000" />
-      <label>Secondaire</label>
-      <input type="color" id="cSec" value="#000000" />
-    </div>
+      <div class="detail__priceRow">
+        <div class="price">${v.price.toLocaleString()} $</div>
+        <div class="detail__actions">
+          <button class="btn btn-blue" id="btnPreview">Visualiser</button>
+          ${
+            canBuy
+              ? `<button class="btn btn-accent" id="btnBuy">Acheter (dispo)</button>`
+              : `<button class="btn" disabled title="${state.autoBuyAllowed ? 'Rupture de stock' : 'Vendeur en ville'}">
+                  ${state.autoBuyAllowed ? 'Indisponible' : 'Vendeur présent'}
+                </button>`
+          }
+        </div>
+      </div>
 
-    <!-- Pas de paiement, pas d'achat -->
-    <div class="actions" style="margin-top:8px">
-      <button class="btn btn-blue" id="btnPreview">Visualiser</button>
-    </div>
+      <div class="sep"></div>
 
-    <div id="dealerBox" class="hidden" style="margin-top:10px"></div>
-  `;
+      <div class="row"><label>Vitesse max</label><div style="flex:1">${statBar(v.stats?.vmax/4)}</div></div>
+      <div class="row"><label>Freinage</label><div style="flex:1">${statBar(v.stats?.brake)}</div></div>
+      <div class="row"><label>Accélération</label><div style="flex:1">${statBar(v.stats?.accel)}</div></div>
 
-  // ouvre la modale
-  openModal();
+      <div class="sep"></div>
 
-  // wiring
-  const cPrim = panel.querySelector('#cPrim');
-  const cSec  = panel.querySelector('#cSec');
+      <div class="row">
+        <label>Couleur (prim.)</label>
+        <input type="color" id="cPrim" value="#000000" />
+        <label>Secondaire</label>
+        <input type="color" id="cSec" value="#000000" />
+      </div>
+    `;
 
-  cPrim.addEventListener('input', () => recolor());
-  cSec .addEventListener('input', () => recolor());
+    openModal();
 
-  panel.querySelector('#btnPreview').addEventListener('click', () => preview(v));
+    panel.querySelector('#cPrim').addEventListener('input', recolor);
+    panel.querySelector('#cSec').addEventListener('input', recolor);
+    panel.querySelector('#btnPreview').addEventListener('click', () => preview(v));
+    if (canBuy) panel.querySelector('#btnBuy').addEventListener('click', () => buySelf(v));
 }
+
 
 
 

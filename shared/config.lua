@@ -4,7 +4,7 @@ Config.CatalogueOnlyStaff = false
 Config.LeDjo_Garage = true
 Config.LockingRange = 5.0
 Config.CycleVehicleClass = 13
-Config.Keyitem = "carkeys"
+Config.Keyitem = "vehiclekeys"
 Config.KeyPrice = 100
 Config.KeyShop = {
     Ped = { Model = 'a_m_m_genfat_01', Position = vector4(10000000,10000000,0,0) }
@@ -39,7 +39,7 @@ Config.Shops = {
     catalogue = {                          -- ex-Config.Catalogue + Preview + spawn
       coords  = vector4(156.9762, -1108.2394, 29.1951, 111.0609),
       preview = { coords = vector3(153.2474, -1108.1558, 29.4387), heading = 303.6652 },
-      spawn   = { coords = vector3(135.0231, -1094.0894, 29.1951), heading = 102.0680 },
+      spawn   = { coords = vector3(142.33288574219, -1081.4255371094, 29.194416046143), heading = 83.159164428711 },
       cam     = { enabled = true, coords = vector3(160.1710, -1106.8975, 30.1951), heading = 99.7397 },
     },
 
@@ -64,10 +64,11 @@ Config.Shops = {
 
     AllowedCategories = {
 		compacts=true, coupes=true, sedans=true, sports=true, sportsclassics=true,
-		super=true, muscle=true, offroad=true, suvs=true, vans=true, motorcycles=true
+		super=true, muscle=true, offroad=true, suvs=true, vans=true, motorcycles=true,
+		motorhome=true
 	},
 
-    AllowedClasses    = { [0]=true,[1]=true,[2]=true,[3]=true,[4]=true,[5]=true,[6]=true,[7]=true,[8]=true,[9]=true,[12]=true },
+    AllowedClasses    = { [0]=true,[1]=true,[2]=true,[3]=true,[4]=true,[5]=true,[6]=true,[7]=true,[8]=true,[9]=true,[12]=true,[17]=true,[20]=true },
 
 
     garagePed = { model = "a_m_m_og_boss_01", coords = vec3(163.3517, -1086.6912, 28.1944), heading = 359.1566 },
@@ -143,9 +144,10 @@ Config.Shops = {
     AllowedCategories = {
 		compacts=true, coupes=true, sedans=true, sports=true, sportsclassics=true,
 		super=true, muscle=true, offroad=true, suvs=true, vans=true, motorcycles=true,
+		motorhome=true
 	},
 
-    AllowedClasses    = { [0]=true,[1]=true,[2]=true,[3]=true,[4]=true,[5]=true,[6]=true,[7]=true,[8]=true,[9]=true,[12]=true },
+    AllowedClasses    = { [0]=true,[1]=true,[2]=true,[3]=true,[4]=true,[5]=true,[6]=true,[7]=true,[8]=true,[9]=true,[12]=true,[17]=true,[20]=true },
 
 
     garagePed = { model = "a_m_m_og_boss_01", coords = vec3(-358.68060302734, 7444.6596679688, 6.3313255310059), heading = 178.61181640625 },

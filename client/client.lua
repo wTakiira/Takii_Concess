@@ -1003,16 +1003,6 @@ CreateThread(function()
       receptionPeds[#receptionPeds+1] = ped
 
       exports.ox_target:addLocalEntity(ped, {
-        -- {
-        --   name  = 'concess_reception_'..id,
-        --   icon  = 'fa-solid fa-truck-ramp-box',
-        --   label = 'Réception & Logistique (UI)',
-        --   onSelect = function()
-        --     CURRENT_SHOP = id
-        --     COUNTER_START_SECTION = 'logi'
-        --     OpenCounterUI()
-        --   end
-        -- },
         {
         name  = 'concess_livraison_'..id,
         icon  = 'fa-solid fa-route',
@@ -1034,34 +1024,16 @@ CreateThread(function()
             local model = selectFrom(all, 'Modèle à réassort', 'Choisir un modèle')
             if not model then return end
             local qty = promptQty(1); if not qty then return end
+            qty = math.max(1, math.min(6, math.floor(tonumber(qty) or 1)))
+            if qty == 6 then
+                lib.notify({title='Livraison', description='Max 6 véhicules par livraison (valeur ajustée).', type='inform'})
+            end
 
             -- démarre comme la commande /repotest (spawn côté client)
             TriggerEvent('concess:repo:startClient', { model = model, count = qty })
             lib.notify({title='Livraison', description='Mission lancée', type='inform'})
         end
         },
-        -- {
-        --   name  = 'concess_restock_'..id,
-        --   icon  = 'fa-solid fa-boxes-packing',
-        --   label = 'Réassort direct (+stock)',
-        --   onSelect = function()
-        --     if not IsDealerJob() then
-        --       lib.notify({title='Logistique', description='Accès réservé au personnel.', type='error'}); return
-        --     end
-        --     CURRENT_SHOP = id
-        --     local all = lib.callback.await('ledjo:concess_liste_veh', false) or {}
-        --     all = _filterByShop(all)
-        --     if #all == 0 then
-        --       lib.notify({title='Réassort', description='Aucun modèle disponible ici.', type='error'}); return
-        --     end
-        --     local model = selectFrom(all, 'Modèle à réassort', 'Choisir un modèle')
-        --     if not model then return end
-        --     local qty = promptQty(1); if not qty then return end
-        --     local shop = (Config.Shops or {})[CURRENT_SHOP or id] or {}
-        --     local mult = (shop.comptoir and shop.comptoir.restockMultiplicateur) or 0.3
-        --     TriggerServerEvent('ledjo:concess_restock', CURRENT_SHOP or id, model, qty, mult)
-        --   end
-        -- },
         {
           name  = 'concess_haul_spawn_'..id,
           icon  = 'fa-solid fa-truck-moving',
@@ -1320,6 +1292,8 @@ function OpenCatalogUI()
     local shop = GetShop()
     local shopLabel = shop and (shop.label or "Concession") or "Concession"
 
+    local dealersCount = lib.callback.await('concess:getDealersOnline', false) or 0
+
     -- catégories
     lib.callback('ledjo:concess_liste_cat', false, function(result)
         local allowCat = shop and shop.AllowedCategories or nil
@@ -1338,7 +1312,7 @@ function OpenCatalogUI()
                     id        = CURRENT_SHOP,
                     label     = shopLabel,
                     isDealer  = IsDealerJob(),
-                    dealersOnline = staffCount or 0
+                    dealersOnline = dealersCount
                 },
                 categories = cats
             })
@@ -1451,59 +1425,123 @@ local function randomPlate()
 end
 
 
-local function getNearbyPlayers(maxDist)
-    local me = PlayerId()
+local function getNearbyPlayers(max)
+    max = tonumber(max) or 8.0
     local myPed = PlayerPedId()
-    local myPos = GetEntityCoords(myPed)
+    local myCoords = GetEntityCoords(myPed)
     local out = {}
-    for _,pid in ipairs(GetActivePlayers()) do
-        if pid ~= me then
-            local ped = GetPlayerPed(pid)
-            local dist = #(GetEntityCoords(ped)-myPos)
-            if dist <= (maxDist or 10.0) then
-                out[#out+1] = { id = GetPlayerServerId(pid), name = GetPlayerName(pid), distance = math.floor(dist) }
+
+    for _, ply in ipairs(GetActivePlayers()) do
+        if ply ~= PlayerId() then
+            local ped = GetPlayerPed(ply)
+            if DoesEntityExist(ped) then
+                local dist = #(GetEntityCoords(ped) - myCoords)
+                if dist <= max then
+                    out[#out+1] = {
+                        id = GetPlayerServerId(ply),
+                        name = GetPlayerName(ply),
+                        distance = dist
+                    }
+                end
             end
         end
     end
-    table.sort(out, function(a,b) return a.distance < b.distance end)
+
+    table.sort(out, function(a,b) return (a.distance or 9e9) < (b.distance or 9e9) end)
     return out
 end
 
 
--- NUI: facture via export vms_cityhall (ouverture d’une facture vide)
+-- NUI: créer et ouvrir une facture chez le client le plus proche (8m)
+-- Takii_Concess/client.lua (NUI)
 RegisterNUICallback('stock:bill', function(data, cb)
-    -- 1) Vérifier qu’il y a bien un client à proximité (8m)
-    local near = getNearbyPlayers(8.0)
-    if #near == 0 then
+    -- 1) récupérer les joueurs proches
+    local near = (getNearbyPlayers and getNearbyPlayers(8.0)) or {}
+    if type(near) ~= 'table' or #near == 0 then
         if lib and lib.notify then
-            lib.notify({title='Facture', description='Aucun client proche.', type='error'})
+            lib.notify({ title = 'Facture', description = 'Aucun client proche.', type = 'error' })
         end
         cb({ ok = false, msg = 'Aucun client proche.' })
         return
     end
 
-    -- 2) Vérifier que le script facture est bien démarré
-    if not GetResourceState or GetResourceState('vms_cityhall') ~= 'started' then
-        if lib and lib.notify then
-            lib.notify({title='Facture', description='vms_cityhall non démarré.', type='error'})
+    -- helper: extraire serverId d’une entrée (nombre ou table)
+    local function getServerId(entry)
+        if type(entry) == 'number' then
+            -- peut être un serverId déjà; on ne peut pas le savoir sans ambigüité.
+            -- On l’utilise comme serverId et on convertira ensuite en client id.
+            return entry
+        elseif type(entry) == 'table' then
+            return entry.serverId or entry.source or entry.sid or entry.id or entry[1]
         end
-        cb({ ok = false, msg = 'vms_cityhall non démarré.' })
+        return nil
+    end
+
+    -- 2) vérifier la ressource facture
+    if not GetResourceState or GetResourceState('Takii_Invoice') ~= 'started' then
+        if lib and lib.notify then
+            lib.notify({ title = 'Facture', description = 'Takii_Invoice non démarré.', type = 'error' })
+        end
+        cb({ ok = false, msg = 'Takii_Invoice non démarré.' })
         return
     end
 
-    -- 3) Ouvrir l’UI de facture (vide) côté vms_cityhall
-    local ok, err = pcall(function()
-        exports['vms_cityhall']:openEmptyInvoice()
-    end)
-    if not ok then
-        if lib and lib.notify then
-            lib.notify({title='Facture', description='Export facture indisponible.', type='error'})
+    -- 3) choisir le plus proche (convertir serverId -> player index pour GetPlayerPed)
+    local my = GetEntityCoords(PlayerPedId())
+    local bestSid, best = nil, 1e9
+    for _, entry in ipairs(near) do
+        local sid = getServerId(entry)
+        if sid then
+            local pid = GetPlayerFromServerId(sid)      -- << conversion sûre
+            if pid and pid ~= -1 then
+                local ped = GetPlayerPed(pid)           -- OK ici
+                if ped ~= 0 then
+                    local dist = #(GetEntityCoords(ped) - my)
+                    if dist < best then bestSid, best = sid, dist end
+                end
+            end
         end
-        cb({ ok = false, msg = tostring(err or 'export_failed') })
+    end
+    if not bestSid then
+        if lib and lib.notify then
+            lib.notify({ title = 'Facture', description = 'Aucun client valide.', type = 'error' })
+        end
+        cb({ ok = false, msg = 'Aucun client valide.' })
         return
     end
 
-    -- 4) Fermer ton menu Concession immédiatement (comme demandé)
+    -- 4) récupérer les données de l’UI (sécurisées)
+    local price = tonumber(data and data.price) or 0
+    local label = (data and (data.vehicleLabel or data.modelLabel or data.model or data.vehicle)) or 'Véhicule'
+    local plate = (data and (data.plate or data.generatedPlate or data.immatriculation)) or ''
+    local spawn = (data and (data.model or data.spawn or data.hash)) or '' -- code spawn
+    local notes = (data and data.notes) or 'Paiement dû à réception'
+
+    if price <= 0 then
+        if lib and lib.notify then
+            lib.notify({ title = 'Facture', description = 'Montant invalide.', type = 'error' })
+        end
+        cb({ ok = false, msg = 'Montant invalide.' })
+        return
+    end
+
+    -- 5) demander au serveur d’OUVRIR la facture chez le client (pas d’item tant que non payé)
+    TriggerServerEvent('Takii_Concess:openInvoiceForNearest', bestSid, {
+        lines = {
+            { qty = 1, description = (('%s [%s]'):format(label, plate ~= '' and plate or 'sans plaque')), unit = price }
+        },
+        vatRate = 0,
+        notes = notes,
+        billedToName = (function()
+            local pid = GetPlayerFromServerId(bestSid)
+            return (pid ~= -1 and GetPlayerName(pid)) or 'Client'
+        end)(),
+        vehicleModel = label,
+        plate = plate,
+        spawnName = spawn
+    })
+
+    -- 6) fermer l’UI concess
     if CloseUI then
         CloseUI()
     else
@@ -1512,10 +1550,64 @@ RegisterNUICallback('stock:bill', function(data, cb)
     end
 
     if lib and lib.notify then
-        lib.notify({title='Facture', description='Facture ouverte (remplissez-la).', type='success'})
+        lib.notify({ title = 'Facture', description = 'Facture ouverte chez le client.', type = 'success' })
     end
     cb({ ok = true })
 end)
+
+
+-- (facultatif) feedback serveur
+RegisterNetEvent('Takii_Concess:invoiceResult', function(ok, msg)
+    print("test invoice result")
+    if lib and lib.notify then
+        lib.notify({ title='Facture', description= msg or (ok and 'OK' or 'Erreur'), type= ok and 'success' or 'error' })
+    end
+end)
+
+-- après paiement: choisir la couleur (côté client payeur)
+RegisterNetEvent('Takii_Concess:chooseColor', function(ctx)
+    -- ctx = { payer = serverIdDuClient }
+    local options = {
+        { value='stock',    label='Stock (défaut)' },
+        { value='noir_mat', label='Noir mat' },
+        { value='blanc',    label='Blanc' },
+        { value='rouge',    label='Rouge' },
+        { value='bleu',     label='Bleu' },
+        { value='vert',     label='Vert' },
+    }
+
+    local input = lib and lib.inputDialog and lib.inputDialog('Couleur du véhicule', {
+        { type='select', label='Couleur', options=options, default='stock' },
+    }) or nil
+
+    local choice = (input and input[1]) or 'stock'
+    TriggerServerEvent('Takii_Concess:colorChosen', { payer = ctx and ctx.payer, choice = choice })
+end)
+
+-- reçoit la demande de capture, lit les props et renvoie au serveur
+RegisterNetEvent('Takii_Concess:captureProps', function(data)
+    print("captureProps")
+    local netId = data.netId
+    local plate = data.plate
+
+    local veh = NetworkGetEntityFromNetworkId(netId)
+    local tOut = GetGameTimer() + 5000
+    while not DoesEntityExist(veh) and GetGameTimer() < tOut do
+        Wait(50)
+        veh = NetworkGetEntityFromNetworkId(netId)
+    end
+    if not DoesEntityExist(veh) then
+        TriggerServerEvent('Takii_Concess:storeOwned', { plate = plate, netId = netId, props = { plate = plate, model = data.model } })
+        return
+    end
+
+    -- Props complets ESX
+    local props = ESX.Game.GetVehicleProperties(veh)
+    props.plate = plate -- on force la cohérence
+
+    TriggerServerEvent('Takii_Concess:storeOwned', { netId = netId, plate = plate, props = props })
+end)
+
 
 
 RegisterNUICallback('ui:getNearby', function(data, cb)
@@ -1627,19 +1719,60 @@ RegisterNetEvent('esx:setJob', function(job) ESX.PlayerData.job = job end)
 -- ========= REPO CLIENT =========
 
 local repoActive = false
--- on gère maintenant plusieurs véhicules/blips
 local repoVehs, repoBlips = {}, {}
 local repoTarget = nil
+local repoShopId = nil  
+local repoDepositBlip   = nil
+local repoMarkerThread  = nil
+
+local function clearDepositPoint()
+    if repoDepositBlip then
+        SetBlipRoute(repoDepositBlip, false)
+        RemoveBlip(repoDepositBlip)
+        repoDepositBlip = nil
+    end
+    repoMarkerThread = nil
+end
+
+local function setDepositPoint(ret)
+    -- blip
+    clearDepositPoint()
+    repoDepositBlip = AddBlipForCoord(ret.x, ret.y, ret.z)
+    SetBlipSprite(repoDepositBlip, 1)
+    SetBlipColour(repoDepositBlip, 2)
+    SetBlipRoute(repoDepositBlip, true)
+    BeginTextCommandSetBlipName('STRING')
+    AddTextComponentString('Point de dépose')
+    EndTextCommandSetBlipName(repoDepositBlip)
+
+    -- marker au sol (boucle propre)
+    if not repoMarkerThread then
+        repoMarkerThread = true
+        CreateThread(function()
+            local radius = 5.0
+            while repoActive and repoDepositBlip do
+                Wait(0)
+                DrawMarker(
+                    1, ret.x, ret.y, ret.z - 1.0,
+                    0.0,0.0,0.0, 0.0,0.0,0.0,
+                    radius*2.0, radius*2.0, 1.0,
+                    0,255,0,120, false,true,2, false,nil,nil,false
+                )
+            end
+        end)
+    end
+end
 
 local function clearRepo()
-    for _, bl in ipairs(repoBlips) do if bl then RemoveBlip(bl) end end
+    for ent, bl in pairs(repoBlips) do if bl then RemoveBlip(bl) end end
     repoBlips = {}
     for _, ent in ipairs(repoVehs) do
         if ent and DoesEntityExist(ent) then DeleteEntity(ent) end
     end
-    repoVehs = {}
-    repoTarget = nil
+    repoVehs   = {}
+    repoShopId = nil
     repoActive = false
+    clearDepositPoint()
 end
 
 -- point d'arrivée = zone de stock du shop courant
@@ -1653,12 +1786,16 @@ end
 
 RegisterNetEvent('concess:repo:startClient', function(veh)
     dprint('Event concess:repo:startClient reçu, payload=', json.encode(veh or {}))
-    local L = ensureCurrentShopForRepo()
+
+    local L = ensureCurrentShopForRepo()            -- définit CURRENT_SHOP si besoin
     if not L or not L.pickup then
         lib.notify({title='Récupération', description='Pickup introuvable (shop non défini).', type='error'})
         dprint('getLivraison() NIL - vérifier Config.Shops[<shop>].livraison.pickup')
         return
     end
+
+    -- shop courant (sert pour le serveur)
+    repoShopId = CURRENT_SHOP
 
     clearRepo()
     dnotify('début event (client)')
@@ -1673,17 +1810,14 @@ RegisterNetEvent('concess:repo:startClient', function(veh)
     end
     RequestModel(h) while not HasModelLoaded(h) do Wait(10) end
 
-    local wanted = math.min(tonumber(veh and (veh.max or veh.count)) or 1, 5)
+    -- combien à récupérer (serveur te l’envoie dans veh.count, sinon 1)
+    local wanted = math.min(tonumber(veh and (veh.count or veh.max)) or 1, 6)
     if wanted <= 0 then wanted = 1 end
 
-    -- *** NOUVEAU: pas de best spawn, on reste à L.pickup avec offsets <= 4.0 ***
     local base = vector4(L.pickup.x, L.pickup.y, L.pickup.z, L.pickup.w or 0.0)
     local offsets = {
-        vec3(0.0, 0.0, 0.0),
-        vec3(4.0, 0.0, 0.0),
-        vec3(-4.0, 0.0, 0.0),
-        vec3(0.0, 4.0, 0.0),
-        vec3(0.0, -4.0, 0.0)
+        vec3(0.0, 0.0, 0.0), vec3(5.0, 0.0, 0.0), vec3(-5.0, 0.0, 0.0),
+        vec3(0.0, 6.0, 0.0), vec3(0.0, -6.0, 0.0), vec3(-10.0, 0.0, 0.0)
     }
 
     local modelName = (type(mdl) == 'string' and mdl) or (GetDisplayNameFromVehicleModel(h) or 'unknown')
@@ -1699,7 +1833,7 @@ RegisterNetEvent('concess:repo:startClient', function(veh)
             SetVehicleDoorsShut(ent, true)
             SetVehicleDoorsLocked(ent, 2)
 
-            local plate = randomPlate()
+            local plate = AllocPlateABC1234_server and AllocPlateABC1234_server() or randomPlate()
             SetVehicleNumberPlateText(ent, plate)
             local got = giveKeys(plate, modelName, ent)
             dprint(('spawn #%d @%.2f %.2f (keys=%s, plate=%s)'):format(i, sx, sy, tostring(got), plate))
@@ -1710,7 +1844,7 @@ RegisterNetEvent('concess:repo:startClient', function(veh)
             BeginTextCommandSetBlipName('STRING'); AddTextComponentString('Véhicule à récupérer'); EndTextCommandSetBlipName(bl)
 
             repoVehs[#repoVehs+1] = ent
-            repoBlips[#repoBlips+1] = bl
+            repoBlips[ent] = bl
         else
             dprint('CreateVehicle a renvoyé 0 (échec spawn)')
         end
@@ -1725,7 +1859,7 @@ RegisterNetEvent('concess:repo:startClient', function(veh)
     repoActive = true
     dnotify(('spawn OK x%d'):format(#repoVehs))
 
-    -- *** NOUVEAU: afficher le point de dépose dès qu'on est dans la zone du véhicule à récupérer ***
+    -- Affiche le point de dépose dès qu’on s’approche d’UN des véhicules
     local depositBlip = nil
     CreateThread(function()
         local ret = L.stock or L.depot or L.pickup
@@ -1736,13 +1870,10 @@ RegisterNetEvent('concess:repo:startClient', function(veh)
             for _, ent in ipairs(repoVehs) do
                 if ent ~= 0 and DoesEntityExist(ent) then
                     if #(p - GetEntityCoords(ent)) <= 4.0 then
-                        if depositBlip then RemoveBlip(depositBlip) end
-                        depositBlip = AddBlipForCoord(ret.x, ret.y, ret.z)
-                        SetBlipSprite(depositBlip, 1)
-                        SetBlipColour(depositBlip, 2)
-                        SetBlipRoute(depositBlip, true)
-                        BeginTextCommandSetBlipName('STRING'); AddTextComponentString('Point de dépose'); EndTextCommandSetBlipName(depositBlip)
-                        lib.notify({title='Livraison', description='Amenez le véhicule au point de dépose.', type='inform'})
+                        -- if depositBlip then RemoveBlip(depositBlip) end  <-- SUPPRIME
+                        -- depositBlip = AddBlipForCoord(...)               <-- SUPPRIME
+                        setDepositPoint(ret)                                 -- AJOUTE
+                        lib.notify({title='Livraison', description='Amenez chaque véhicule au point de dépose.', type='inform'})
                         shown = true
                         break
                     end
@@ -1751,40 +1882,118 @@ RegisterNetEvent('concess:repo:startClient', function(veh)
         end
     end)
 
-    -- suivi retour (validation quand on amène LE véhicule dans la zone de dépôt)
+    -- Boucle de validation : retour UNITAIRE
     CreateThread(function()
         local ret = L.stock or L.depot or L.pickup
         local retVec = vec3(ret.x, ret.y, ret.z)
         local radius = 5.0
         while repoActive do
-            Wait(400)
+            Wait(250)
             local ped = PlayerPedId()
-            local cur = GetVehiclePedIsIn(ped,false)
-            if cur ~= 0 then
-                for _, ent in ipairs(repoVehs) do
-                    if ent == cur and #(GetEntityCoords(cur) - retVec) <= radius then
-                        -- >>> RETIRER LES CLÉS ICI <<<
-                        local plate = (GetVehicleNumberPlateText(cur) or '')
-                        removeKeys(plate, cur, modelName) 
+            local cur = GetVehiclePedIsIn(ped, false)
+            if cur ~= 0 and DoesEntityExist(cur) then
+                -- le véhicule qu’on conduit fait-il partie des repos ?
+                local idx = nil
+                for i, ent in ipairs(repoVehs) do
+                    if ent == cur then idx = i; break end
+                end
+                if idx and #(GetEntityCoords(cur) - retVec) <= radius then
+                    -- 1) retirer les clés côté client
+                    local plate = (GetVehicleNumberPlateText(cur) or '')
+                    removeKeys(plate, cur, modelName)
 
-                        TriggerServerEvent('concess:repo:complete', modelName)
-                        dnotify('retour effectué → complete() envoyé')
+                    -- 2) pousser au serveur "un véhicule rendu"
+                    TriggerServerEvent('concess:repo:returnOne', {
+                        model  = modelName,
+                        shopId = repoShopId
+                    })
 
-                        if depositBlip then RemoveBlip(depositBlip); depositBlip = nil end
+                    -- 3) nettoyer ce véhicule : blip + entity
+                    local bl = repoBlips[cur]; if bl then RemoveBlip(bl) end
+                    repoBlips[cur] = nil
+                    deleteVehEntity(cur)
+                    table.remove(repoVehs, idx)
+
+                    -- 4) si plus rien à rendre → mission finie
+                    if #repoVehs == 0 then
+                        lib.notify({title='Livraison', description='Livraison terminée.', type='success'})
                         clearRepo()
+                        clearDepositPoint()
                         return
+                    else
+                        lib.notify({title='Livraison', description=('Véhicule déposé. Restants: %d'):format(#repoVehs), type='success'})
                     end
                 end
             end
         end
     end)
-
-    -- (optionnel) marqueur debug 10s au pickup
-    local untilT = GetGameTimer() + 10000
-    CreateThread(function()
-        while GetGameTimer() < untilT do
-            DrawMarker(1, base.x, base.y, base.z+1.0, 0,0,0, 0,0,0, 1.0,1.0,1.0, 255,255,255,120, false,true,2, false,nil,nil,false)
-            Wait(0)
-        end
-    end)
 end)
+
+-- ========= NUI <-> SERVER BRIDGE (client.lua) =========
+local function safe(cb, payload)
+    if cb then cb(payload or {}) end
+end
+
+-- === Trace + log utilitaire ===
+local function debugClient(msg)
+    print(('[BOSS_UI_CLIENT] %s'):format(msg))
+    if lib and lib.notify then
+        lib.notify({ title = 'Debug Boss', description = msg, type = 'inform', duration = 2500 })
+    end
+end
+
+RegisterNUICallback('boss:getData', function(d, cb)
+    debugClient('boss:getData NUI reçu → appel lib.callback')
+    local r = lib.callback.await('boss:getData', false) or {}
+    debugClient(('boss:getData retour OK (balance=%s, employés=%s)'):format(tostring(r.balance), #(r.employees or {})))
+    safe(cb, r)
+end)
+
+RegisterNUICallback('boss:recruit', function(d, cb)
+  TriggerServerEvent('boss:recruit', d)
+  safe(cb, { ok = false })
+end)
+
+RegisterNUICallback('boss:payCustom', function(d, cb)
+  print('[NUI] boss:payCustom', json.encode(d))
+  TriggerServerEvent('boss:payCustom', d)
+  safe(cb, { ok = true })
+end)
+
+RegisterNUICallback('boss:changeGrade', function(d, cb)
+    debugClient(('boss:changeGrade → identifier=%s newGrade=%s'):format(tostring(d and d.identifier), tostring(d and d.newGrade)))
+    TriggerServerEvent('boss:changeGrade', d)
+    safe(cb, { ok = true })
+end)
+
+RegisterNUICallback('boss:promoteToBoss', function(d, cb)
+    debugClient(('boss:promoteToBoss → identifier=%s'):format(tostring(d and d.identifier)))
+    TriggerServerEvent('boss:promoteToBoss', d)
+    safe(cb, { ok = true })
+end)
+
+RegisterNUICallback('boss:fire', function(d, cb)
+    debugClient(('boss:fire → identifier=%s'):format(tostring(d and d.identifier)))
+    TriggerServerEvent('boss:fire', d)
+    safe(cb, { ok = true })
+end)
+
+RegisterNUICallback('boss:addMoney', function(d, cb)
+    debugClient(('boss:addMoney → amount=%s'):format(tostring(d and d.amount)))
+    TriggerServerEvent('boss:addMoney', d)
+    safe(cb, { ok = true })
+end)
+
+RegisterNUICallback('boss:removeMoney', function(d, cb)
+    debugClient(('boss:removeMoney → amount=%s'):format(tostring(d and d.amount)))
+    TriggerServerEvent('boss:removeMoney', d)
+    safe(cb, { ok = true })
+end)
+
+RegisterNUICallback('ui:getNearby', function(d, cb)
+    local max = d and d.max or 8.0
+    local list = getNearbyPlayers(max)
+    debugClient(('[ui:getNearby] renvoie %d joueurs <= %.1fm'):format(#list, max))
+    cb({ players = list })
+end)
+

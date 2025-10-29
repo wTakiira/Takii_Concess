@@ -23,13 +23,10 @@
       </aside>
       <main class="main">
         <div id="vehList" class="grid"></div>
-        <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="vehTitle">
-          <div class="modal__backdrop" id="modalBackdrop"></div>
-          <div class="modal__window">
-            <button class="modal__close" id="modalClose" aria-label="Fermer">×</button>
-            <div id="vehPanel" class="modal__content"></div>
-          </div>
-        </div>
+       <aside id="detail" class="detail hidden" aria-labelledby="vehTitle">
+          <button class="detail__close" id="panelClose" aria-label="Fermer">×</button>
+          <div id="vehPanel" class="modal__content"></div>
+        </aside>
       </main>
     </section>
     
@@ -39,7 +36,6 @@
         <div class="brand"><span class="logo">🏷️</span><span>Concession — Menu Job</span></div>
         <div style="display:flex;gap:8px;align-items:center;width:60%">
           <input id="spotGlobalSearch" class="input" style="flex:1" placeholder="Rechercher client, plaque, modèle..." />
-          <button id="btnAnnPromo" class="btn">Annonce promo</button>
           <button id="closeCounter" class="btn btn-ghost">Fermer</button>
         </div>
       </header>
@@ -51,7 +47,6 @@
           <div class="cats" id="counterSections">
             <button class="btn" data-sec="spots" style="text-align:left">Parc & Spots</button>
             <button class="btn" data-sec="logi"  style="text-align:left">Réception & Logistique</button>
-            <button class="btn" data-sec="logs"  style="text-align:left">Historique & Logs</button>
           </div>
         </aside>
 
@@ -65,7 +60,6 @@
                   <button class="btn btn-ghost" data-filter="all">Tous</button>
                   <button class="btn btn-ghost" data-filter="free">Libres</button>
                   <button class="btn btn-ghost" data-filter="occupied">Occupés</button>
-                  <button class="btn btn-ghost" data-filter="reserved">Réservés</button>
                   <button class="btn btn-ghost" data-filter="car">Voiture</button>
                   <button class="btn btn-ghost" data-filter="bike">Moto</button>
                 </div>
@@ -119,24 +113,35 @@
 
 
     <!-- Vue Boss -->
-    <section id="view-boss" class="hidden view">
-      <header class="header">
-        <div class="brand"><span class="logo">🧑‍💼</span><span>Menu Patron</span></div>
-        <button id="closeBoss" class="btn btn-ghost">✕</button>
-      </header>
-      <div class="main" style="padding:14px;display:grid;gap:12px">
-        <div id="bossBalance" class="card">Solde: 0 $</div>
+   <section id="view-boss" class="hidden view">
+  <header class="header">
+    <div class="brand"><span class="logo">🧑‍💼</span><span>Menu Patron</span></div>
+    <button id="closeBoss" class="btn btn-ghost">✕</button>
+  </header>
 
-        <div class="card">
-          <div style="font-weight:700;margin-bottom:6px">Salaires</div>
-          <div id="salaryList" class="small">Chargement…</div>
-        </div>
+  <!-- Panneau latéral droit -->
+  <aside id="bossPane" class="boss-pane">
+    <div id="bossBalance" class="boss-balance">Solde: 0 $</div>
 
-        <div class="card">
-          <div style="font-weight:700;margin-bottom:6px">Employés</div>
-          <div id="empList" class="small">Chargement…</div>
-        </div>
+    <section id="bossEmps" class="boss-emps"></section>
+
+    <div class="boss-box">
+      <div class="box-title">Option</div>
+      <div class="boss-actions">
+        <button id="btnRecruit" class="pill pill-primary">Recruter (joueur proche)</button>
+        <button id="btnAddMoney" class="pill pill-primary">Ajouter de l'argent</button>
+        <button id="btnRemMoney" class="pill pill-primary">Retirer de l'argent</button>
       </div>
+    </div>
+
+    <div class="boss-box">
+      <div class="box-title">Notes</div>
+      <textarea id="bossNotes" placeholder="Laisser une note…" class="notes"></textarea>
+    </div>
+  </aside>
+</section>
+
+      </main>
     </section>
   </div>
   <div id="peekX" class="peekX hidden" title="Afficher le catalogue">✕</div>
